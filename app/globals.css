@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+:root {
+  --night: #0b1020;
+  --street: #191f31;
+  --edge: #39425e;
+  --sign: #111727;
+  --neon-pink: #ff5c9e;
+  --neon-teal: #45e3d2;
+  --neon-amber: #ffc24b;
+  --paper: #f4f1ea;
+  --sub: #a9b2c4;
+
+  /* Inside a store: warm paper instead of the night street. */
+  --interior-bg: #f3ebdd;
+  --interior-fg: #1a1712;
+  --interior-muted: #5c5446;
+  --interior-line: #cdbfa6;
+  --interior-accent: #b8336a;
+}
+
+@theme inline {
+  --color-night: var(--night);
+  --color-street: var(--street);
+  --color-edge: var(--edge);
+  --color-sign: var(--sign);
+  --color-neon-pink: var(--neon-pink);
+  --color-neon-teal: var(--neon-teal);
+  --color-neon-amber: var(--neon-amber);
+  --color-paper: var(--paper);
+  --color-sub: var(--sub);
+  --color-interior-bg: var(--interior-bg);
+  --color-interior-fg: var(--interior-fg);
+  --color-interior-muted: var(--interior-muted);
+  --color-interior-line: var(--interior-line);
+  --color-interior-accent: var(--interior-accent);
+  --font-display: var(--font-bricolage);
+  --font-pixel: var(--font-silkscreen);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: var(--night);
+  color: var(--paper);
+  font-family: var(--font-sans);
+}
+
+.street-scroll {
+  scrollbar-color: var(--edge) transparent;
+}
+
+.lane::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 55%;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--neon-amber) 0 40px,
+    transparent 40px 90px
+  );
+  opacity: 0.6;
+}
