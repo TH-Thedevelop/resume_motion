@@ -41,16 +41,21 @@ export const SKYLINE_SPEED = 0.4;
 export const LAMP_SPEED = 1.2;
 const LAMP_SPACING = 152;
 
-const STARS = [
-  [14, 12],
-  [46, 24],
-  [79, 9],
-  [112, 30],
-  [143, 14],
-  [176, 26],
-  [201, 8],
-  [238, 34],
-];
+// Stars scattered over a wide, tall patch of sky, the same on every visit.
+// y is in scene rows, so negative values sit in the extra sky above the scene
+// on tall windows. The field repeats sideways on very wide windows.
+const STAR_FIELD_W = 2048;
+const STAR_TOP = -512;
+const STAR_BOTTOM = 60;
+const STARS: [number, number][] = [];
+let starSeed = 7;
+const starRandom = () => (starSeed = (starSeed * 16807) % 2147483647) / 2147483647;
+for (let i = 0; i < 700; i += 1) {
+  STARS.push([
+    Math.floor(starRandom() * STAR_FIELD_W),
+    Math.floor(STAR_TOP + starRandom() * (STAR_BOTTOM - STAR_TOP)),
+  ]);
+}
 
 const SKYLINE = [
   [18, 30],
@@ -71,6 +76,64 @@ export type Store = {
 };
 
 export type World = { stores: Store[]; width: number };
+
+/**
+ * What the canvas shows, in art pixels. The camera is framed on the storefront
+ * band (FRAME_TOP to FRAME_BOTTOM); width grows with the window, so wider
+ * screens see more of the street. sceneTop is where scene row 0 lands in the
+ * view: positive means extra sky above, negative means the camera is zoomed in
+ * and the top rows are cropped. bottom is the road below row HEIGHT, left free
+ * for the controls bar (negative when the view ends above it).
+ */
+export type View = {
+  width: number;
+  height: number;
+  scale: number; // device pixels per art pixel, always a whole number
+  sceneTop: number;
+  bottom: number;
+};
+
+export const DEFAULT_VIEW: View = {
+  width: WIDTH,
+  height: HEIGHT,
+  scale: 1,
+  sceneTop: 0,
+  bottom: 0,
+};
+
+// The camera frames these scene rows: just above the tallest roof and the title,
+// down through the sidewalk, the curb and a strip of road.
+const FRAME_TOP = 24;
+const FRAME_BOTTOM = 126;
+const FRAME_ROWS = FRAME_BOTTOM - FRAME_TOP;
+
+const MIN_VIEW_WIDTH = 96; // narrow screens keep one storefront plus margins in view
+const MAX_SCALE = 8; // in CSS pixels; above this, wider screens show more street instead
+
+/**
+ * Picks a whole-number scale in device pixels, so every art pixel is the same
+ * size on any screen and zoom level. The scale is as large as the framing band
+ * allows, which zooms the camera in on the storefronts. All sizes passed in are
+ * device pixels.
+ */
+export function fitView(
+  stageWidth: number,
+  stageHeight: number,
+  controlsHeight: number,
+  devicePixelRatio: number,
+): View {
+  const byHeight = Math.floor((stageHeight - controlsHeight) / FRAME_ROWS);
+  const byWidth = Math.floor(stageWidth / MIN_VIEW_WIDTH);
+  const maxScale = Math.max(1, Math.round(MAX_SCALE * devicePixelRatio));
+  const scale = Math.max(1, Math.min(byHeight, byWidth, maxScale));
+
+  const width = Math.ceil(stageWidth / scale);
+  const height = Math.ceil(stageHeight / scale);
+  const controlsRows = Math.ceil(controlsHeight / scale);
+  // Row FRAME_BOTTOM sits right on top of the controls bar.
+  const sceneTop = height - controlsRows - FRAME_BOTTOM;
+  return { width, height, scale, sceneTop, bottom: height - HEIGHT - sceneTop };
+}
 
 export type WalkState = {
   x: number;
@@ -206,24 +269,31 @@ function dither(ctx: Ctx, color: string, x: number, y: number, w: number, h: num
 const TWINKLE_CYCLE = 120;
 const TWINKLE_OFF = 8;
 
-function drawSky(ctx: Ctx, ticks: number, reducedMotion: boolean) {
-  rect(ctx, COLORS.night, 0, 0, WIDTH, HEIGHT);
-  STARS.forEach(([x, y], index) => {
-    const blinking =
-      !reducedMotion && (ticks + index * 37) % TWINKLE_CYCLE < TWINKLE_OFF;
-    if (!blinking) rect(ctx, COLORS.sub, x, y, 1, 1);
-  });
+function drawSky(ctx: Ctx, ticks: number, reducedMotion: boolean, view: View) {
+  rect(ctx, COLORS.night, 0, -view.sceneTop, view.width, view.height);
+  for (let offset = 0; offset < view.width; offset += STAR_FIELD_W) {
+    STARS.forEach(([x, y], index) => {
+      if (y < -view.sceneTop || offset + x >= view.width) return;
+      const blinking =
+        !reducedMotion && (ticks + index * 37) % TWINKLE_CYCLE < TWINKLE_OFF;
+      if (!blinking) rect(ctx, COLORS.sub, offset + x, y, 1, 1);
+    });
+  }
 
+  // The moon stays near the right edge, a little below the top of the view,
+  // however wide or zoomed in the window is.
   const radius = 8;
+  const moonX = view.width - 34;
+  const moonY = -view.sceneTop + 12;
   for (let dy = -radius; dy <= radius; dy += 1) {
     const half = Math.round(Math.sqrt(radius * radius - dy * dy));
-    rect(ctx, COLORS.amber, 222 - half, 20 + dy, half * 2, 1);
+    rect(ctx, COLORS.amber, moonX - half, moonY + dy, half * 2, 1);
   }
 }
 
-function drawSkyline(ctx: Ctx, scroll: number) {
+function drawSkyline(ctx: Ctx, scroll: number, width: number) {
   let x = -mod(scroll, SKYLINE_W);
-  while (x < WIDTH) {
+  while (x < width) {
     SKYLINE.forEach(([w, h], building) => {
       const top = SIDEWALK_Y - h;
       rect(ctx, COLORS.street, x, top, w, h);
@@ -239,22 +309,26 @@ function drawSkyline(ctx: Ctx, scroll: number) {
   }
 }
 
-function drawGround(ctx: Ctx, cam: number) {
-  rect(ctx, COLORS.edge, 0, SIDEWALK_Y, WIDTH, ROAD_Y - SIDEWALK_Y);
-  for (let x = -mod(cam, 16); x < WIDTH; x += 16) {
+function drawGround(ctx: Ctx, cam: number, view: View) {
+  const { width } = view;
+  rect(ctx, COLORS.edge, 0, SIDEWALK_Y, width, ROAD_Y - SIDEWALK_Y);
+  for (let x = -mod(cam, 16); x < width; x += 16) {
     rect(ctx, COLORS.street, x, SIDEWALK_Y, 1, ROAD_Y - SIDEWALK_Y);
   }
-  rect(ctx, COLORS.sub, 0, ROAD_Y - 1, WIDTH, 1);
-  rect(ctx, COLORS.street, 0, ROAD_Y, WIDTH, HEIGHT - ROAD_Y);
-  for (let x = -mod(cam, 20); x < WIDTH; x += 20) {
+  rect(ctx, COLORS.sub, 0, ROAD_Y - 1, width, 1);
+  // The road runs on under the controls bar.
+  rect(ctx, COLORS.street, 0, ROAD_Y, width, HEIGHT - ROAD_Y + view.bottom);
+  for (let x = -mod(cam, 20); x < width; x += 20) {
     rect(ctx, COLORS.amber, x, 131, 10, 1);
   }
 }
 
-function drawTitle(ctx: Ctx, cam: number) {
+function drawTitle(ctx: Ctx, cam: number, viewWidth: number) {
   const x = 16 - cam;
-  if (x + textWidth(site.name) * 2 < 0) return;
-  drawText(ctx, site.name, x, 26, COLORS.paper, 2);
+  // On narrow, zoomed-in screens the 2x name would run off the edge, so use 1x.
+  const size = textWidth(site.name) * 2 + 32 <= viewWidth ? 2 : 1;
+  if (x + textWidth(site.name) * size < 0) return;
+  drawText(ctx, site.name, x, size === 2 ? 26 : 32, COLORS.paper, size);
   drawText(ctx, "Little Saigon", x, 42, COLORS.teal);
   drawText(ctx, "Walk >", x, 50, COLORS.amber);
 }
@@ -386,11 +460,11 @@ function drawConstructionLot(ctx: Ctx, store: Store, sx: number) {
   drawText(ctx, sign, boardX + 4, fenceY + 6, palette.neon);
 }
 
-function lampPositions(cam: number, reducedMotion: boolean) {
+function lampPositions(cam: number, reducedMotion: boolean, width: number) {
   const scroll = Math.round(cam * (reducedMotion ? 1 : LAMP_SPEED));
   const positions: number[] = [];
   let i = Math.floor((scroll - 24) / LAMP_SPACING);
-  for (let x = i * LAMP_SPACING + 76 - scroll; x < WIDTH + 24; ) {
+  for (let x = i * LAMP_SPACING + 76 - scroll; x < width + 24; ) {
     positions.push(x);
     i += 1;
     x = i * LAMP_SPACING + 76 - scroll;
@@ -416,10 +490,10 @@ function drawLampPost(ctx: Ctx, x: number) {
   rect(ctx, COLORS.amber, x - 2, LAMP_TOP - 2, 6, 2);
 }
 
-function drawPrompt(ctx: Ctx, x: number, bob: number) {
+function drawPrompt(ctx: Ctx, x: number, bob: number, viewWidth: number) {
   const label = "Enter";
   const width = textWidth(label) + 4;
-  const left = clamp(x + SPRITE_W / 2 - width / 2, 1, WIDTH - width - 1);
+  const left = clamp(x + SPRITE_W / 2 - width / 2, 1, viewWidth - width - 1);
   const top = FEET_Y - SPRITE_H - 10 - bob;
   rect(ctx, COLORS.sign, left, top, width, 9);
   drawText(ctx, label, left + 2, top + 2, COLORS.paper);
@@ -431,26 +505,36 @@ export function draw(
   state: WalkState,
   reducedMotion: boolean,
   near: Store | null,
+  view: View,
 ) {
+  // On a window wider than the whole street, the camera simply stays at 0.
   const cam = clamp(
-    Math.round(state.x + SPRITE_W / 2 - WIDTH / 2),
+    Math.round(state.x + SPRITE_W / 2 - view.width / 2),
     0,
-    world.width - WIDTH,
+    Math.max(0, world.width - view.width),
   );
 
-  drawSky(ctx, state.ticks, reducedMotion);
-  drawSkyline(ctx, Math.round(cam * (reducedMotion ? 1 : SKYLINE_SPEED)));
-  drawTitle(ctx, cam);
-  drawGround(ctx, cam);
+  // Everything below is drawn in scene rows; the extra sky sits above row 0.
+  ctx.save();
+  ctx.translate(0, view.sceneTop);
+
+  drawSky(ctx, state.ticks, reducedMotion, view);
+  drawSkyline(
+    ctx,
+    Math.round(cam * (reducedMotion ? 1 : SKYLINE_SPEED)),
+    view.width,
+  );
+  drawTitle(ctx, cam, view.width);
+  drawGround(ctx, cam, view);
 
   world.stores.forEach((store, index) => {
     const sx = store.x - cam;
-    if (sx > WIDTH || sx + store.width < 0) return;
+    if (sx > view.width || sx + store.width < 0) return;
     if (isOpen(store)) drawOpenStore(ctx, store, sx, state.shutters[index]);
     else drawConstructionLot(ctx, store, sx);
   });
 
-  const lamps = lampPositions(cam, reducedMotion);
+  const lamps = lampPositions(cam, reducedMotion, view.width);
   lamps.forEach((x) => drawLampLight(ctx, x));
 
   const playerX = Math.round(state.x) - cam;
@@ -462,10 +546,12 @@ export function draw(
     state.facing < 0,
   );
 
+  lamps.forEach((x) => drawLampPost(ctx, x));
+
+  // Drawn last so foreground lamp posts never cut through it.
   if (near) {
     const bob = reducedMotion ? 0 : Math.floor(state.ticks / 16) % 2;
-    drawPrompt(ctx, playerX, bob);
+    drawPrompt(ctx, playerX, bob, view.width);
   }
-
-  lamps.forEach((x) => drawLampPost(ctx, x));
+  ctx.restore();
 }

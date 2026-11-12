@@ -39,8 +39,8 @@ content/projects.ts       # single source of truth for every building
 content/site.ts           # name, tagline, résumé path, public contact details
 public/resume.pdf         # the résumé the header links to
 lib/motion.ts             # durations, easings, springs, shared variants
-lib/pixel/art.ts          # 256 x 144 screen size, fixed palette, sprites, pixel font
-lib/pixel/scene.ts        # world layout, walking, shutters, all canvas drawing
+lib/pixel/art.ts          # 144-row scene height, fixed palette, sprites, pixel font
+lib/pixel/scene.ts        # world layout, fitView (whole-number scale up to 8×, camera framed on rows 24–126: storefronts to sidewalk; width grows with the window), walking, shutters, drawing
 ```
 
 ### Why intercepting routes
@@ -115,7 +115,7 @@ export const spring = {
 - With reduced motion on, parallax is off and shutters snap open.
 
 ## Performance
-- The scene is drawn in code on a 256 x 144 canvas from `lib/pixel/`, no image files for the scene unless sprites are added from Piskel or Aseprite.
+- The scene is drawn in code on a canvas 144 art pixels tall (extra sky above, width grows with the window) from `lib/pixel/`, no image files for the scene unless sprites are added from Piskel or Aseprite.
 - Case-study images use `next/image` with real `alt`.
 - Lighthouse targets: Performance ≥ 90, Accessibility ≥ 95 on mobile.
 

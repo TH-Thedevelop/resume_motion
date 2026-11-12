@@ -8,17 +8,18 @@ import {
   SPRITE_COLORS,
   WALK_A,
   WALK_B,
-  WIDTH,
 } from "@/lib/pixel/art";
 import { LAMP_SPEED, SKYLINE_SPEED, WALK_FRAME_TICKS } from "@/lib/pixel/scene";
 
 // "How pixel art works" and "Fitting it into your build", following the
 // Pixel Street document. Previews use the same data the canvas draws with.
 
-export function scaleLabel(scale: number | null) {
-  if (scale === null) return "–";
-  if (Number.isInteger(scale)) return `${scale}×`;
-  return `${scale.toFixed(2)}× (fractional)`;
+export type ViewInfo = { width: number; height: number; scale: number };
+
+// The scale is in real screen pixels, so it is always a whole number.
+export function scaleLabel(view: ViewInfo | null) {
+  if (view === null) return "–";
+  return `${view.scale}× · ${view.width} × ${view.height} art pixels`;
 }
 
 const code = "rounded-sm bg-sign px-1 font-mono text-sm text-paper";
@@ -155,14 +156,14 @@ function Swatch({ color, label }: { color: string; label: string }) {
 
 export function PixelLessons({
   projects,
-  scale,
+  view,
   showGrid,
   smooth,
   onToggleGrid,
   onToggleSmooth,
 }: {
   projects: Project[];
-  scale: number | null;
+  view: ViewInfo | null;
   showGrid: boolean;
   smooth: boolean;
   onToggleGrid: () => void;
@@ -181,7 +182,7 @@ export function PixelLessons({
       </h2>
       <p className="mt-2 max-w-2xl text-lg text-sub">
         Pixel art is drawing on a tiny grid on purpose, where every square is a
-        decision. This screen is only {WIDTH} × {HEIGHT} pixels. Here are the
+        decision. This street is only {HEIGHT} pixels tall. Here are the
         six techniques it uses, with a switch or preview for each.
       </p>
 
@@ -195,14 +196,14 @@ export function PixelLessons({
                 Show pixel grid
               </Toggle>
               <p className="font-mono text-sm text-paper">
-                Scale: {scaleLabel(scale)}
+                Right now: {scaleLabel(view)}
               </p>
             </div>
           }
         >
           <p>
-            Everything is drawn at {WIDTH} × {HEIGHT} and the browser enlarges
-            it. Turn on <strong className="text-paper">Show pixel grid</strong>{" "}
+            Everything is drawn on a canvas only {HEIGHT} pixels tall, as wide
+            as your window needs, and the browser enlarges it. Turn on <strong className="text-paper">Show pixel grid</strong>{" "}
             to see each real pixel.
           </p>
         </Card>
@@ -240,8 +241,9 @@ export function PixelLessons({
             The camera and the character use{" "}
             <code className={code}>Math.round</code>, so nothing ever lands
             between pixels. Scaling by a whole number (2×, 3×) keeps every pixel
-            the same size. On a phone the screen falls back to a fractional
-            scale so it stays readable.
+            the same size. The scale is counted in your screen&apos;s real
+            pixels, so it stays whole on any display, and a wider window shows
+            more of the street instead of bigger pixels.
           </p>
         </Card>
 

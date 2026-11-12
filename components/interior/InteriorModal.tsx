@@ -61,15 +61,21 @@ export function InteriorModal({
         transition={transition}
       />
 
+      {/* px-4 keeps 16px of space on each side on small screens. */}
       <div
-        className="relative flex h-full justify-center overflow-y-auto p-4 md:p-8"
+        className="relative flex h-full items-center justify-center px-4"
         onClick={(event) => {
           if (event.target === event.currentTarget) leave();
         }}
       >
         <motion.div
-          // my-auto centers the panel vertically, but still lets a tall store scroll.
-          className={`my-auto w-full max-w-4xl px-6 pt-5 pb-8 shadow-2xl md:px-14 md:pt-10 md:pb-14 ${interiorPanelClass}`}
+          // Flexible size: the text size grows with the window (16px up to a
+          // 1440px-wide window, then up to 24px), and the width is 45em, so the
+          // panel is 720px at 16px and scales with everything inside it. It never
+          // gets closer than 16px to the screen edges. Height follows the content,
+          // up to 85% of the viewport; taller stores scroll inside the body below
+          // while "Leave store" stays in view.
+          className={`flex max-h-[85dvh] w-[min(45em,calc(100vw_-_32px))] flex-col overflow-hidden text-[length:clamp(16px,calc(8px_+_0.5556vw),24px)] shadow-2xl ${interiorPanelClass}`}
           initial={{ opacity: 0, y: 48 }}
           animate={leaving ? { opacity: 0, y: 12 } : { opacity: 1, y: 0 }}
           transition={transition}
@@ -77,14 +83,19 @@ export function InteriorModal({
             if (leaving) router.back();
           }}
         >
-          <button
-            type="button"
-            onClick={leave}
-            className={`mb-4 ${leaveStoreClass}`}
+          <div className="shrink-0 px-[1.5em] pt-[1.25em] pb-[0.75em] md:px-[2.5em] md:pt-[2em]">
+            <button type="button" onClick={leave} className={leaveStoreClass}>
+              &larr; Leave store
+            </button>
+          </div>
+          {/* Focusable so keyboard users can scroll a tall store with the arrow keys. */}
+          <div
+            tabIndex={0}
+            aria-labelledby={titleId}
+            className="min-h-0 overflow-y-auto px-[1.5em] pb-[2em] focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-interior-accent md:px-[2.5em] md:pb-[2.5em]"
           >
-            &larr; Leave store
-          </button>
-          {children}
+            {children}
+          </div>
         </motion.div>
       </div>
     </dialog>

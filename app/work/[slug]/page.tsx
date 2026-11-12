@@ -37,7 +37,7 @@ export default async function StorePage({ params }: Props) {
     <div className="min-h-dvh bg-night p-4">
       <SiteHeader />
       <main
-        className={`mx-auto mt-8 max-w-4xl px-6 pt-5 pb-8 md:px-14 md:pt-10 md:pb-14 ${interiorPanelClass}`}
+        className={`mx-auto mt-8 max-w-[1440px] px-6 pt-5 pb-8 md:px-10 md:pt-8 md:pb-10 ${interiorPanelClass}`}
       >
         {/* A link, not router.back(): a visitor from a shared link has no street to go back to. */}
         <Link href="/" className={`mb-4 ${leaveStoreClass}`}>
