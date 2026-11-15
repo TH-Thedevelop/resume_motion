@@ -13,6 +13,7 @@ export type Project = {
   stack: string[];
   links?: { live?: string; github?: string };
   images?: { src: string; alt: string }[];
+  icon?: "chef-hat" | "banh-mi"; // pixel sprite on the roof, from ICONS in lib/pixel/art.ts
 };
 
 export const projects: Project[] = [
@@ -22,6 +23,7 @@ export const projects: Project[] = [
     kind: "Client project",
     sign: "CHEF NOURISH",
     building: "kitchen",
+    icon: "chef-hat",
     status: "open",
     palette: { neon: "#FF5C9E", awning: "#45E3D2", brick: "#3A2A3F" },
     summary:
@@ -30,8 +32,8 @@ export const projects: Project[] = [
       "A meal-prep catering business needed ingredient substitutes that match each client's dietary restrictions, and no substitute that violates a restriction can reach a client.",
     built:
       "A cache-first architecture keyed on dietary-restriction tags that calls the LLM only on cache misses, to cut API cost and latency. Structured LLM output goes through deterministic validation in application code. Underneath are diet templates, an ingredient taxonomy, and a multi-factor substitution ranker, structured from thousands of entries extracted from hundreds of kitchen cut-sheets.",
-    result: "[TODO]",
-    stack: ["Python", "LLM APIs", "Data Modeling"],
+    result: "Deliverying a working ingredient substitution system that help them to deal with their client's restriction and generate the menu base on that.",
+    stack: ["Next.js 16", "TypeScript", "OpenAI Responses API", "PostgreSQL on Neon", "Vercel"],
   },
   {
     slug: "pickle-banh-mi",
@@ -39,16 +41,17 @@ export const projects: Project[] = [
     kind: "Freelance contract",
     sign: "PICKLE BANH MI",
     building: "shopfront",
+    icon: "banh-mi",
     status: "open",
     palette: { neon: "#45E3D2", awning: "#FFC24B", brick: "#2B3A33" },
     summary:
       "Overhauling and maintaining the website for a Fountain Valley banh mi shop, as a contracted freelance web developer.",
     problem:
-      "The company website, picklebanhmi.co, had long-standing usability and content issues.",
+      "The company website, picklebanhmi.co, messy and outdated. It does not reflect the quality of the food and service they provide.",
     built:
-      "Contracted by the business owners, I scoped the requirements, negotiated a services agreement, and am fixing the site's usability and content issues. I manage ongoing site updates through the end of 2026.",
-    result: "[TODO]",
-    stack: [],
+      "Revamping their website's UI/UX and content. Improve their online presence to attract more customers and make it easier for them to order online.",
+    result: "Successfully improved their online presence and make it easier for customers to order online.",
+    stack: ["Wix"],
     links: { live: "https://picklebanhmi.co" },
   },
   {

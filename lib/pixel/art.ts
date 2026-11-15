@@ -1,3 +1,5 @@
+import type { Project } from "@/content/projects";
+
 // Everything the street is drawn from: screen size, colors, sprites, and letters.
 
 // Technique 1: the whole world is drawn on this tiny grid, then enlarged.
@@ -124,3 +126,81 @@ export function textWidth(text: string): number {
   if (text.length === 0) return 0;
   return text.split("").reduce((sum, char) => sum + charWidth(char) + 1, -1);
 }
+
+// 9 x 9 pixel arrows for the keycaps in the key guide.
+export const ARROW_LEFT = [
+  "....#....",
+  "...##....",
+  "..###....",
+  ".########",
+  "#########",
+  ".########",
+  "..###....",
+  "...##....",
+  "....#....",
+];
+export const ARROW_RIGHT = ARROW_LEFT.map((row) => row.split("").reverse().join(""));
+export const ARROW_UP = [
+  "....#....",
+  "...###...",
+  "..#####..",
+  ".#######.",
+  "#########",
+  "...###...",
+  "...###...",
+  "...###...",
+  "...###...",
+];
+
+// Rooftop icons, one per store (picked by `icon` in content/projects.ts).
+// Each is a grid of letters like the walker; "." is see-through. Traced from
+// the owner's pixel art and fitted to the street's scale.
+type Icon = { rows: string[]; colors: Record<string, string> };
+
+export const ICONS: Record<NonNullable<Project["icon"]>, Icon> = {
+  "chef-hat": {
+    colors: { o: COLORS.edge, w: COLORS.paper, f: COLORS.sub, p: COLORS.pink },
+    rows: [
+      "......oooo......",
+      ".....owwwwo.....",
+      "..oooowwwwoooo..",
+      ".owwwowwwwowwwo.",
+      "owwwwwwwwwwwwwwo",
+      "owwwwwwwwwwwwwwo",
+      "owwwwfwwwwfwwwwo",
+      ".owwwfwwwwfwwwo.",
+      "..oowfwwwwfwoo..",
+      "...owfwwwwfwo...",
+      "...owwwwwwwwo...",
+      "...oppppppppo...",
+      "...oppppppppo...",
+      "...oooooooooo...",
+    ],
+  },
+  "banh-mi": {
+    colors: {
+      o: COLORS.edge, // outline: the roof-trim color, so it shows against the night sky
+      b: "#F6A31D", // bread
+      c: "#BE5002", // crust score
+      h: "#FCCE7B", // crust highlight
+      g: "#549D23", // cilantro
+      k: "#0B3A27", // dark herbs
+      r: "#FD6B00", // pickled carrot
+      w: "#F3DAC5", // daikon
+      m: "#76251F", // pork
+      l: "#CF7E64", // pork, light
+    },
+    rows: [
+      "......oooooo....oooooo....",
+      "....oobbbbbboooobbbbbboo..",
+      "..oobbbcchhbbbbbbcchhbbbo.",
+      ".obbbbcchhbbbbbbcchhbbbbbo",
+      "obbbbbbbbbbbbbbbbbbbbbbbbo",
+      "okgkrrwgkkgwrrkgkkwrrgkkro",
+      "owrrkgwwlmrrwkmlrrgwwmlwko",
+      "oblmmllmmllmmlmmllmmllmmbo",
+      ".obbbbbbbbbbbbbbbbbbbbbbo.",
+      "..oooooooooooooooooooooo..",
+    ],
+  },
+};

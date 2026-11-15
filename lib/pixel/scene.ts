@@ -3,6 +3,7 @@ import { site } from "@/content/site";
 import {
   COLORS,
   HEIGHT,
+  ICONS,
   SPRITE_COLORS,
   WALK_A,
   WALK_B,
@@ -103,7 +104,7 @@ export const DEFAULT_VIEW: View = {
 
 // The camera frames these scene rows: just above the tallest roof and the title,
 // down through the sidewalk, the curb and a strip of road.
-const FRAME_TOP = 24;
+const FRAME_TOP = 20;
 const FRAME_BOTTOM = 126;
 const FRAME_ROWS = FRAME_BOTTOM - FRAME_TOP;
 
@@ -209,10 +210,10 @@ export function update(
     state.shutters[index] = reducedMotion
       ? target
       : clamp(
-          current + Math.sign(target - current) * SHUTTER_SPEED,
-          Math.min(current, target),
-          Math.max(current, target),
-        );
+        current + Math.sign(target - current) * SHUTTER_SPEED,
+        Math.min(current, target),
+        Math.max(current, target),
+      );
   });
 
   return near;
@@ -323,14 +324,24 @@ function drawGround(ctx: Ctx, cam: number, view: View) {
   }
 }
 
+export const TITLE_X = 16;
+
+// Scene rows the HTML overlays in PixelStreet line up with.
+export const GUIDE_ROW = 46; // key guide: just under "Little Saigon" (rows 38-42)
+export const DOOR_TOP_ROW = SIDEWALK_Y - GROUND_FLOOR_H; // top of every shop door
+
+// Wide enough for the full-size title and the key prompts under it.
+function hasRoomForTitle(viewWidth: number) {
+  return textWidth(site.name) * 2 + 32 <= viewWidth;
+}
+
 function drawTitle(ctx: Ctx, cam: number, viewWidth: number) {
-  const x = 16 - cam;
+  const x = TITLE_X - cam;
   // On narrow, zoomed-in screens the 2x name would run off the edge, so use 1x.
-  const size = textWidth(site.name) * 2 + 32 <= viewWidth ? 2 : 1;
+  const size = hasRoomForTitle(viewWidth) ? 2 : 1;
   if (x + textWidth(site.name) * size < 0) return;
-  drawText(ctx, site.name, x, size === 2 ? 26 : 32, COLORS.paper, size);
-  drawText(ctx, "Little Saigon", x, 42, COLORS.teal);
-  drawText(ctx, "Walk >", x, 50, COLORS.amber);
+  drawText(ctx, site.name, x, size === 2 ? 22 : 28, COLORS.paper, size);
+  drawText(ctx, "Software from the coutner side", x, 38, COLORS.teal);
 }
 
 function drawLitWindow(ctx: Ctx, x: number, y: number, w: number, h: number) {
@@ -382,6 +393,19 @@ function drawUpperFloor(ctx: Ctx, store: Store, sx: number, top: number, signY: 
   }
 }
 
+// A store's rooftop icon, centered, sitting on the roof edge at row `roof`.
+function drawRoofIcon(ctx: Ctx, store: Store, sx: number, roof: number) {
+  if (!store.project.icon) return;
+  const { rows, colors } = ICONS[store.project.icon];
+  const left = sx + Math.floor((store.width - rows[0].length) / 2);
+  const top = roof + 1 - (rows.length - 1);
+  rows.forEach((row, y) => {
+    row.split("").forEach((cell, x) => {
+      if (cell !== ".") rect(ctx, colors[cell], left + x, top + y, 1, 1);
+    });
+  });
+}
+
 function drawOpenStore(ctx: Ctx, store: Store, sx: number, shutter: number) {
   const { width, project } = store;
   const { building, palette } = project;
@@ -394,6 +418,7 @@ function drawOpenStore(ctx: Ctx, store: Store, sx: number, shutter: number) {
 
   rect(ctx, palette.brick, sx, top, width, height);
   rect(ctx, COLORS.edge, sx, top, width, 2);
+  drawRoofIcon(ctx, store, sx, top);
   drawUpperFloor(ctx, store, sx, top, signY);
   drawSignBoard(ctx, store, sx, signY);
 
@@ -464,7 +489,7 @@ function lampPositions(cam: number, reducedMotion: boolean, width: number) {
   const scroll = Math.round(cam * (reducedMotion ? 1 : LAMP_SPEED));
   const positions: number[] = [];
   let i = Math.floor((scroll - 24) / LAMP_SPACING);
-  for (let x = i * LAMP_SPACING + 76 - scroll; x < width + 24; ) {
+  for (let x = i * LAMP_SPACING + 76 - scroll; x < width + 24;) {
     positions.push(x);
     i += 1;
     x = i * LAMP_SPACING + 76 - scroll;
@@ -490,13 +515,14 @@ function drawLampPost(ctx: Ctx, x: number) {
   rect(ctx, COLORS.amber, x - 2, LAMP_TOP - 2, 6, 2);
 }
 
-function drawPrompt(ctx: Ctx, x: number, bob: number, viewWidth: number) {
-  const label = "Enter";
-  const width = textWidth(label) + 4;
-  const left = clamp(x + SPRITE_W / 2 - width / 2, 1, viewWidth - width - 1);
-  const top = FEET_Y - SPRITE_H - 10 - bob;
-  rect(ctx, COLORS.sign, left, top, width, 9);
-  drawText(ctx, label, left + 2, top + 2, COLORS.paper);
+/** Left edge of the view in world pixels. Shared with the HTML overlays. */
+export function cameraX(world: World, state: WalkState, view: View) {
+  // On a window wider than the whole street, the camera simply stays at 0.
+  return clamp(
+    Math.round(state.x + SPRITE_W / 2 - view.width / 2),
+    0,
+    Math.max(0, world.width - view.width),
+  );
 }
 
 export function draw(
@@ -504,15 +530,9 @@ export function draw(
   world: World,
   state: WalkState,
   reducedMotion: boolean,
-  near: Store | null,
   view: View,
 ) {
-  // On a window wider than the whole street, the camera simply stays at 0.
-  const cam = clamp(
-    Math.round(state.x + SPRITE_W / 2 - view.width / 2),
-    0,
-    Math.max(0, world.width - view.width),
-  );
+  const cam = cameraX(world, state, view);
 
   // Everything below is drawn in scene rows; the extra sky sits above row 0.
   ctx.save();
@@ -547,11 +567,5 @@ export function draw(
   );
 
   lamps.forEach((x) => drawLampPost(ctx, x));
-
-  // Drawn last so foreground lamp posts never cut through it.
-  if (near) {
-    const bob = reducedMotion ? 0 : Math.floor(state.ticks / 16) % 2;
-    drawPrompt(ctx, playerX, bob, view.width);
-  }
   ctx.restore();
 }

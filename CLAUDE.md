@@ -31,7 +31,7 @@ components/
   MotionProvider.tsx      # "use client"; <MotionConfig reducedMotion="user">, keeps layout.tsx a server component
   site/SiteHeader.tsx     # name, Classic view, Résumé, Contact (<details>); on every page
   site/ContactLinks.tsx   # email, phone, GitHub from content/site.ts
-  street/PixelStreet.tsx  # "use client"; canvas, game loop, input, plus the real HTML links
+  street/PixelStreet.tsx  # "use client"; canvas, game loop, input; HTML key guide + "[ENTER] GO INSIDE" door prompt pinned to the scene each frame
   intro/IntroSequence.tsx # 5s launch intro; plays once per session
   interior/Interior.tsx   # case-study layout shared by modal + full page
   interior/InteriorModal.tsx # "use client"; native <dialog>, Motion enter/exit, Esc + "Leave store" → router.back()
@@ -40,7 +40,7 @@ content/site.ts           # name, tagline, résumé path, public contact details
 public/resume.pdf         # the résumé the header links to
 lib/motion.ts             # durations, easings, springs, shared variants
 lib/pixel/art.ts          # 144-row scene height, fixed palette, sprites, pixel font
-lib/pixel/scene.ts        # world layout, fitView (whole-number scale up to 8×, camera framed on rows 24–126: storefronts to sidewalk; width grows with the window), walking, shutters, drawing
+lib/pixel/scene.ts        # world layout, fitView (whole-number scale up to 8×, camera framed on rows 20–126: title, storefronts and sidewalk; width grows with the window), walking, shutters, drawing
 ```
 
 ### Why intercepting routes
@@ -71,6 +71,7 @@ export type Project = {
   stack: string[];
   links?: { live?: string; github?: string };
   images?: { src: string; alt: string }[];
+  icon?: "chef-hat" | "banh-mi"; // rooftop pixel sprite, defined in ICONS (lib/pixel/art.ts)
 };
 ```
 Adding a project = adding an object. Finishing one = `status: "construction"` → `"open"`.
@@ -107,7 +108,7 @@ export const spring = {
 | 4.15–5.00 | CTA springs in, then hold | hold |
 
 ## Accessibility (non-negotiable)
-- Every open store also has a real `<a href="/work/slug">` through `next/link` in the "Same stores, no game" row, outside the canvas (works without JS, middle-click, back button, screen readers).
+- Every open store also has a real `<a href="/work/slug">` through `next/link` outside the canvas: the "Classic view" page linked from the header (works without JS, middle-click, back button, screen readers). The street page has no section below the game.
 - Walking works by keyboard (only while the canvas has focus) and by on-screen buttons for mouse and touch. Do not hijack the wheel or capture keys globally.
 - Visible focus ring on the canvas and links; in the modal, Esc and a "Leave store" button close it (`router.back()`). On the full `/work/[slug]` page, "Leave store" links to `/`, since `router.back()` could leave the site.
 - Header always shows: name, "Classic view" link, Résumé, Contact.

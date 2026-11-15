@@ -1,7 +1,6 @@
 "use client";
 
 import { useReducedMotion } from "motion/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
@@ -12,13 +11,14 @@ import {
   type ReactNode,
 } from "react";
 import { SiteHeader } from "@/components/site/SiteHeader";
-import {
-  PixelBuildNotes,
-  PixelLessons,
-} from "@/components/street/PixelLessons";
 import type { Project } from "@/content/projects";
+import { ARROW_LEFT, ARROW_RIGHT, ARROW_UP } from "@/lib/pixel/art";
 import {
   DEFAULT_VIEW,
+  DOOR_TOP_ROW,
+  GUIDE_ROW,
+  TITLE_X,
+  cameraX,
   createWalkState,
   createWorld,
   draw,
@@ -34,9 +34,58 @@ const BUTTON_STEP = 16; // pixels moved per keyboard press of an on-screen butto
 const buttonClass =
   "pointer-events-auto rounded-md border border-edge bg-sign px-5 py-3 font-mono text-sm text-paper select-none touch-none hover:border-neon-teal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neon-teal disabled:opacity-40 disabled:hover:border-edge";
 
-// The canvas as laid out on the page: the view in art pixels, and how many
-// CSS pixels each art pixel covers (a whole number of real screen pixels).
-type Layout = { view: View; cssScale: number };
+// Key guide pieces: HTML over the canvas, so sizes are exact CSS pixels
+// (30px keycaps, 16px labels) in the Silkscreen pixel font.
+const guideLabelClass =
+  "font-pixel text-[16px] leading-none uppercase text-paper";
+
+function PixelArrow({ rows }: { rows: string[] }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox={`0 0 ${rows[0].length} ${rows.length}`}
+      width={18}
+      height={18}
+      shapeRendering="crispEdges"
+      className="block"
+    >
+      {rows.flatMap((row, y) =>
+        row
+          .split("")
+          .map((cell, x) =>
+            cell === "#" ? (
+              <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill="currentColor" />
+            ) : null,
+          ),
+      )}
+    </svg>
+  );
+}
+
+// Primary keys are gold; alternate keys are muted gray.
+function Keycap({
+  tone,
+  children,
+}: {
+  tone: "primary" | "alternate";
+  children: ReactNode;
+}) {
+  const color =
+    tone === "primary"
+      ? "border-neon-amber text-neon-amber"
+      : "border-sub text-sub";
+  return (
+    <span
+      className={`inline-flex h-[30px] min-w-[30px] items-center justify-center border-2 bg-night px-1.5 font-pixel text-sm leading-none uppercase shadow-[0_3px_0_0_var(--edge)] ${color}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function GuideDot() {
+  return <span className="px-1 font-pixel text-[16px] text-sub">·</span>;
+}
 
 function WalkButton({
   label,
@@ -79,17 +128,16 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<View>(DEFAULT_VIEW);
+  const cssScaleRef = useRef(1); // CSS pixels per art pixel
+  const guideRef = useRef<HTMLDivElement>(null);
+  const doorPromptRef = useRef<HTMLDivElement>(null);
   const walkRef = useRef<WalkState | null>(null);
   const keysRef = useRef({ left: false, right: false });
   const pointerRef = useRef(0);
 
   const [nearSlug, setNearSlug] = useState<string | null>(null);
-  const [layout, setLayout] = useState<Layout | null>(null);
-  const [showGrid, setShowGrid] = useState(false);
-  const [smooth, setSmooth] = useState(false);
   const [focused, setFocused] = useState(false);
   const nearName = projects.find((p) => p.slug === nearSlug)?.name;
-  const openProjects = projects.filter((p) => p.status === "open");
 
   // Size the canvas to fill the stage. Measured in real screen pixels so the
   // scale is always whole (technique 3), even on zoomed or high-density screens.
@@ -115,7 +163,7 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
       canvas.style.width = `${view.width * cssScale}px`;
       canvas.style.height = `${view.height * cssScale}px`;
       viewRef.current = view;
-      setLayout({ view, cssScale });
+      cssScaleRef.current = cssScale;
     };
 
     const observer = new ResizeObserver(measure);
@@ -160,7 +208,28 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
         setNearSlug(slug);
       }
 
-      draw(ctx, world, walk, reducedMotion, near, viewRef.current);
+      const view = viewRef.current;
+      draw(ctx, world, walk, reducedMotion, view);
+
+      // Keep the HTML overlays pinned to the scene as the camera moves. Set
+      // directly on the elements, so walking never re-renders React.
+      const scale = cssScaleRef.current;
+      const cam = cameraX(world, walk, view);
+      const guide = guideRef.current;
+      if (guide) {
+        const x = Math.round((TITLE_X - cam) * scale);
+        const y = Math.round((view.sceneTop + GUIDE_ROW) * scale);
+        guide.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      }
+      const doorPrompt = doorPromptRef.current;
+      if (doorPrompt && near) {
+        const x = Math.round((near.doorX - cam) * scale);
+        const y = Math.round((view.sceneTop + DOOR_TOP_ROW) * scale);
+        // Centered on the door, hanging just inside the top of the doorway so
+        // the store's sign and awning stay readable.
+        doorPrompt.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, 6px)`;
+      }
+
       frameId = requestAnimationFrame(frame);
     };
 
@@ -183,7 +252,8 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
   function handleKeyDown(event: KeyboardEvent<HTMLCanvasElement>) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-    if (event.key === "Enter" || event.key === "ArrowUp") {
+    const key = event.key.toLowerCase();
+    if (key === "enter" || key === "arrowup" || key === "w") {
       event.preventDefault();
       if (!event.repeat) goInside();
     } else if (event.key === "Escape") {
@@ -203,6 +273,9 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
 
   return (
     <main className="bg-night">
+      <h1 className="sr-only">
+        Pixel Street: walk past each project and step inside
+      </h1>
       {/* First screen: the header, then the street filling everything below it. */}
       <div className="flex h-dvh flex-col">
         <div className="p-4">
@@ -219,10 +292,8 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
             height={DEFAULT_VIEW.height}
             tabIndex={0}
             role="application"
-            aria-label="Pixel art street. Use the left and right arrow keys to walk, and Enter to go inside a store."
-            className={`absolute left-0 top-0 block outline-none ${
-              smooth ? "[image-rendering:auto]" : "[image-rendering:pixelated]"
-            }`}
+            aria-label="Pixel art street. Use the left and right arrow keys or A and D to walk, and the up arrow, W, or Enter to go inside a store."
+            className="absolute left-0 top-0 block outline-none [image-rendering:pixelated]"
             onKeyDown={handleKeyDown}
             onKeyUp={(event) => setKey(event, false)}
             onFocus={() => setFocused(true)}
@@ -232,21 +303,6 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
             }}
           />
 
-          {/* Technique 1: one grid cell per art pixel, drawn over the canvas. */}
-          {showGrid && layout && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute left-0 top-0"
-              style={{
-                width: layout.view.width * layout.cssScale,
-                height: layout.view.height * layout.cssScale,
-                backgroundImage:
-                  "linear-gradient(to right, rgb(244 241 234 / 0.2) 1px, transparent 1px), linear-gradient(to bottom, rgb(244 241 234 / 0.2) 1px, transparent 1px)",
-                backgroundSize: `${layout.cssScale}px ${layout.cssScale}px`,
-              }}
-            />
-          )}
-
           {/* The canvas runs past the stage edges, so the focus ring is drawn inside the stage. */}
           {focused && (
             <div
@@ -255,16 +311,53 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
             />
           )}
 
-          {!focused && (
-            <p
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 top-3 hidden text-center font-mono text-xs text-paper md:block"
-            >
-              <span className="rounded-sm bg-sign px-2 py-1">
-                Click here, then &larr; &rarr; to walk, Enter to go in
-              </span>
-            </p>
-          )}
+          {/* Key guide under "Little Saigon", lined up with the title's left edge.
+              Desktop only: touch screens use the buttons along the bottom. */}
+          <div
+            ref={guideRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute left-0 top-0 hidden flex-col gap-2.5 will-change-transform md:flex"
+          >
+            <div className="flex items-center gap-1.5">
+              <Keycap tone="primary">
+                <PixelArrow rows={ARROW_LEFT} />
+              </Keycap>
+              <Keycap tone="primary">
+                <PixelArrow rows={ARROW_RIGHT} />
+              </Keycap>
+              <span className={`ml-1.5 ${guideLabelClass}`}>Walk</span>
+              <GuideDot />
+              <Keycap tone="alternate">A</Keycap>
+              <Keycap tone="alternate">D</Keycap>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Keycap tone="primary">
+                <PixelArrow rows={ARROW_UP} />
+              </Keycap>
+              <Keycap tone="primary">Enter</Keycap>
+              <span className={`ml-1.5 ${guideLabelClass}`}>Go inside</span>
+              <GuideDot />
+              <Keycap tone="alternate">W</Keycap>
+            </div>
+            {/* The keys only work once the street has focus. */}
+            {!focused && (
+              <p className="font-pixel text-xs uppercase text-sub">
+                Click the street to play
+              </p>
+            )}
+          </div>
+
+          {/* Shown at the doorway only while you are close enough to go in. */}
+          <div
+            ref={doorPromptRef}
+            aria-hidden="true"
+            className={`pointer-events-none absolute left-0 top-0 flex items-center gap-2 whitespace-nowrap border border-edge bg-night/90 px-2 py-1.5 will-change-transform motion-safe:transition-opacity motion-safe:duration-150 ${
+              nearSlug ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <Keycap tone="primary">Enter</Keycap>
+            <span className={guideLabelClass}>Go inside</span>
+          </div>
 
           {/* Controls sit on the road along the bottom. The scene leaves room for them. */}
           <div
@@ -297,10 +390,6 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
                 &rarr;
               </WalkButton>
             </div>
-            <p className="hidden font-mono text-xs text-sub md:block">
-              &larr; &rarr; or A D walk &middot; Enter or &uarr; go inside
-              &middot; Esc leave
-            </p>
           </div>
         </div>
       </div>
@@ -308,47 +397,6 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
       <p className="sr-only" aria-live="polite">
         {nearName ? `Standing at ${nearName}, press Enter to go inside.` : ""}
       </p>
-
-      <section className="mx-auto max-w-5xl px-4 pt-12">
-        <p className="font-mono text-xs uppercase tracking-widest text-neon-teal">
-          Pixel experiment
-        </p>
-        <h1 className="mt-1 font-display text-3xl font-bold text-paper">
-          Pixel Street
-        </h1>
-        <p className="mt-2 max-w-2xl text-lg text-sub">
-          Your portfolio street redrawn as pixel art. Walk with the arrow keys or
-          the buttons. Shutters roll up as you get close, and Enter takes you
-          inside the store.
-        </p>
-      </section>
-
-      <PixelLessons
-        projects={projects}
-        view={layout?.view ?? null}
-        showGrid={showGrid}
-        smooth={smooth}
-        onToggleGrid={() => setShowGrid((on) => !on)}
-        onToggleSmooth={() => setSmooth((on) => !on)}
-      />
-
-      <PixelBuildNotes />
-
-      <nav
-        aria-label="All stores"
-        className="flex flex-wrap items-center justify-center gap-x-4 px-4 pb-16 text-sm text-sub"
-      >
-        <span>Same stores, no game:</span>
-        {openProjects.map((project) => (
-          <Link
-            key={project.slug}
-            href={`/work/${project.slug}`}
-            className="text-neon-teal underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neon-teal"
-          >
-            {project.name}
-          </Link>
-        ))}
-      </nav>
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import {
   Interior,
   interiorPanelClass,
@@ -28,11 +29,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 // A direct visit or shared link: the full page, no street behind it.
-export default async function StorePage({ params }: Props) {
-  const { slug } = await params;
-  const project = getOpenProject(slug);
-  if (!project) notFound();
-
+export default function StorePage({ params }: Props) {
   return (
     <div className="min-h-dvh bg-night p-4">
       <SiteHeader />
@@ -43,12 +40,24 @@ export default async function StorePage({ params }: Props) {
         <Link href="/" className={`mb-4 ${leaveStoreClass}`}>
           &larr; Leave store
         </Link>
-        <Interior
-          project={project}
-          titleId={`store-${project.slug}-title`}
-          headingLevel={1}
-        />
+        <Suspense fallback={null}>
+          <StoreContent params={params} />
+        </Suspense>
       </main>
     </div>
+  );
+}
+
+async function StoreContent({ params }: Props) {
+  const { slug } = await params;
+  const project = getOpenProject(slug);
+  if (!project) notFound();
+
+  return (
+    <Interior
+      project={project}
+      titleId={`store-${project.slug}-title`}
+      headingLevel={1}
+    />
   );
 }

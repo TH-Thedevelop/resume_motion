@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { Interior } from "@/components/interior/Interior";
 import { InteriorModal } from "@/components/interior/InteriorModal";
 import { getOpenProject, openProjects } from "@/content/projects";
@@ -9,7 +10,19 @@ export function generateStaticParams() {
 }
 
 // Opened from the street (client-side navigation): the store shows over the canvas.
-export default async function InterceptedStore({
+export default function InterceptedStore({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  return (
+    <Suspense fallback={null}>
+      <InterceptedStoreContent params={params} />
+    </Suspense>
+  );
+}
+
+async function InterceptedStoreContent({
   params,
 }: {
   params: Promise<{ slug: string }>;
