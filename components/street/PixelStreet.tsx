@@ -12,13 +12,15 @@ import {
 } from "react";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import type { Project } from "@/content/projects";
-import { ARROW_LEFT, ARROW_RIGHT, ARROW_UP } from "@/lib/pixel/art";
+import { ARROW_LEFT, ARROW_RIGHT, ARROW_UP, CHARACTER } from "@/lib/pixel/art";
+import { toCanvas, toSprite } from "@/lib/pixel/sprites";
 import {
   DEFAULT_VIEW,
   DOOR_TOP_ROW,
   GUIDE_ROW,
   TITLE_X,
   cameraX,
+  skyPhaseAt,
   createWalkState,
   createWorld,
   draw,
@@ -134,6 +136,9 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
   const walkRef = useRef<WalkState | null>(null);
   const keysRef = useRef({ left: false, right: false });
   const pointerRef = useRef(0);
+  // ?hour=14 (or 6.5, 22...) in the address previews that time of day.
+  const hourOverrideRef = useRef<number | null>(null);
+  const spritesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
   const [nearSlug, setNearSlug] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
@@ -156,8 +161,12 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
         controls.offsetHeight * dpr,
         dpr,
       );
-      if (canvas.width !== view.width) canvas.width = view.width;
-      if (canvas.height !== view.height) canvas.height = view.height;
+      // The canvas is in device pixels (not art pixels), so the camera can
+      // scroll by single screen pixels; each art pixel is still a whole block.
+      const canvasWidth = view.width * view.scale;
+      const canvasHeight = view.height * view.scale;
+      if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
+      if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
 
       const cssScale = view.scale / dpr;
       canvas.style.width = `${view.width * cssScale}px`;
@@ -177,6 +186,30 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
     };
   }, []);
 
+  // Read the ?hour= preview switch once, if it is there.
+  useEffect(() => {
+    const hour = Number(new URLSearchParams(window.location.search).get("hour"));
+    if (Number.isFinite(hour) && hour >= 0 && hour < 24) hourOverrideRef.current = hour;
+  }, []);
+
+  // Load each store's rooftop icon (an image in public/sprites/) once and fit it
+  // to the street. Any size works; big pixel art is shrunk by toSprite.
+  useEffect(() => {
+    const sprites = spritesRef.current;
+    for (const path of new Set(projects.map((p) => p.icon).filter(Boolean))) {
+      if (!path || sprites.has(path)) continue;
+      const image = new Image();
+      image.onload = () => sprites.set(path, toSprite(image));
+      image.src = path;
+    }
+    // The character's sprite sheet, used as it is (not shrunk like icons).
+    if (!sprites.has(CHARACTER.sheet)) {
+      const image = new Image();
+      image.onload = () => sprites.set(CHARACTER.sheet, toCanvas(image));
+      image.src = CHARACTER.sheet;
+    }
+  }, [projects]);
+
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
@@ -188,8 +221,27 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
     let frameId = 0;
     let last = performance.now();
     let pending = 0;
+    let previousX = walk.x; // where the player was one tick ago, for smoothing
     let near: ReturnType<typeof update> = null;
     let reportedSlug: string | null = null;
+
+    // Footsteps: loop while walking (holding a key plays it to the end and
+    // repeats); the moment the character stops, pause and rewind to 0:00.
+    // preload "none": the file only downloads the first time you walk.
+    const footsteps = new Audio(CHARACTER.footsteps);
+    footsteps.loop = true;
+    footsteps.preload = "none";
+    let stepsPlaying = false;
+    const stopSteps = () => {
+      footsteps.pause();
+      footsteps.currentTime = 0;
+      stepsPlaying = false;
+    };
+    // A hidden tab stops the game loop, so stop the sound there too.
+    const onVisibility = () => {
+      if (document.hidden) stopSteps();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const frame = (now: number) => {
       pending += Math.min(now - last, 100);
@@ -198,8 +250,20 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
       while (pending >= TICK_MS) {
         const { left, right } = keysRef.current;
         const direction = pointerRef.current || Number(right) - Number(left);
+        previousX = walk.x;
         near = update(world, walk, direction, reducedMotion);
         pending -= TICK_MS;
+      }
+
+      if (walk.moving && !stepsPlaying) {
+        stepsPlaying = true;
+        // Browsers allow this because walking always starts from a key press,
+        // click or tap. If playback is refused anyway, just stay silent.
+        footsteps.play().catch(() => {
+          stepsPlaying = false;
+        });
+      } else if (!walk.moving && stepsPlaying) {
+        stopSteps();
       }
 
       const slug = near?.project.slug ?? null;
@@ -209,22 +273,32 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
       }
 
       const view = viewRef.current;
-      draw(ctx, world, walk, reducedMotion, view);
+      // The game runs 60 ticks a second, but screens refresh at 60, 90, 120 Hz
+      // or unevenly on phones. Draw the player part of the way between its last
+      // two positions, so movement looks even at any refresh rate.
+      const shown = { ...walk, x: previousX + (walk.x - previousX) * (pending / TICK_MS) };
+      // The sky follows the visitor's own clock, checked every frame.
+      const clock = new Date();
+      const hours =
+        hourOverrideRef.current ?? clock.getHours() + clock.getMinutes() / 60;
+      draw(ctx, world, shown, reducedMotion, view, spritesRef.current, skyPhaseAt(hours));
 
       // Keep the HTML overlays pinned to the scene as the camera moves. Set
       // directly on the elements, so walking never re-renders React.
-      const scale = cssScaleRef.current;
-      const cam = cameraX(world, walk, view);
+      // Art pixels to CSS pixels, on the same device-pixel grid as the canvas.
+      const dpr = view.scale / cssScaleRef.current;
+      const toCss = (art: number) => Math.round(art * view.scale) / dpr;
+      const cam = cameraX(world, shown, view);
       const guide = guideRef.current;
       if (guide) {
-        const x = Math.round((TITLE_X - cam) * scale);
-        const y = Math.round((view.sceneTop + GUIDE_ROW) * scale);
+        const x = toCss(TITLE_X - cam);
+        const y = toCss(view.sceneTop + GUIDE_ROW);
         guide.style.transform = `translate3d(${x}px, ${y}px, 0)`;
       }
       const doorPrompt = doorPromptRef.current;
       if (doorPrompt && near) {
-        const x = Math.round((near.doorX - cam) * scale);
-        const y = Math.round((view.sceneTop + DOOR_TOP_ROW) * scale);
+        const x = toCss(near.doorX - cam);
+        const y = toCss(view.sceneTop + DOOR_TOP_ROW);
         // Centered on the door, hanging just inside the top of the doorway so
         // the store's sign and awning stay readable.
         doorPrompt.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, 6px)`;
@@ -234,7 +308,12 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
     };
 
     frameId = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(frameId);
+    return () => {
+      cancelAnimationFrame(frameId);
+      // Leaving the street (opening a store, another page) stops the sound.
+      document.removeEventListener("visibilitychange", onVisibility);
+      stopSteps();
+    };
   }, [world, reducedMotion]);
 
   function goInside() {
@@ -341,7 +420,7 @@ export function PixelStreet({ projects }: { projects: Project[] }) {
             </div>
             {/* The keys only work once the street has focus. */}
             {!focused && (
-              <p className="font-pixel text-xs uppercase text-sub">
+              <p className="font-pixel text-xs uppercase text-paper/80">
                 Click the street to play
               </p>
             )}

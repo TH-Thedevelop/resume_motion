@@ -13,7 +13,8 @@ export type Project = {
   stack: string[];
   links?: { live?: string; github?: string };
   images?: { src: string; alt: string }[];
-  icon?: "chef-hat" | "banh-mi"; // pixel sprite on the roof, from ICONS in lib/pixel/art.ts
+  // Rooftop icon: an image in public/sprites/. Any size; big pixel art is shrunk to fit the roof.
+  icon?: string;
 };
 
 export const projects: Project[] = [
@@ -23,7 +24,7 @@ export const projects: Project[] = [
     kind: "Client project",
     sign: "CHEF NOURISH",
     building: "kitchen",
-    icon: "chef-hat",
+    icon: "/sprites/chef-hat.png",
     status: "open",
     palette: { neon: "#FF5C9E", awning: "#45E3D2", brick: "#3A2A3F" },
     summary:
@@ -41,7 +42,7 @@ export const projects: Project[] = [
     kind: "Freelance contract",
     sign: "PICKLE BANH MI",
     building: "shopfront",
-    icon: "banh-mi",
+    icon: "/sprites/banh-mi.png",
     status: "open",
     palette: { neon: "#45E3D2", awning: "#FFC24B", brick: "#2B3A33" },
     summary:

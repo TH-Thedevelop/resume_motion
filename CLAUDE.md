@@ -39,8 +39,8 @@ content/projects.ts       # single source of truth for every building
 content/site.ts           # name, tagline, résumé path, public contact details
 public/resume.pdf         # the résumé the header links to
 lib/motion.ts             # durations, easings, springs, shared variants
-lib/pixel/art.ts          # 144-row scene height, fixed palette, sprites, pixel font
-lib/pixel/scene.ts        # world layout, fitView (whole-number scale up to 8×, camera framed on rows 20–126: title, storefronts and sidewalk; width grows with the window), walking, shutters, drawing
+lib/pixel/art.ts          # 144-row scene height, fixed palette, CHARACTER (sprite sheet public/sprites/walker-sheet-1x.png: 16×26 cells; rows idle / walk / run + timings), pixel font
+lib/pixel/scene.ts        # world layout, fitView (whole-number scale up to 8×, camera framed on rows 20–126: title, storefronts and sidewalk; width grows with the window), camera scrolls by device pixels (canvas is device-resolution, art stays on whole pixels), walking, shutters, drawing
 ```
 
 ### Why intercepting routes
@@ -71,7 +71,7 @@ export type Project = {
   stack: string[];
   links?: { live?: string; github?: string };
   images?: { src: string; alt: string }[];
-  icon?: "chef-hat" | "banh-mi"; // rooftop pixel sprite, defined in ICONS (lib/pixel/art.ts)
+  icon?: string;                // rooftop icon image in public/sprites/, e.g. "/sprites/chef-hat.png"; any size, fitted by lib/pixel/sprites.ts
 };
 ```
 Adding a project = adding an object. Finishing one = `status: "construction"` → `"open"`.
@@ -116,7 +116,7 @@ export const spring = {
 - With reduced motion on, parallax is off and shutters snap open.
 
 ## Performance
-- The scene is drawn in code on a canvas 144 art pixels tall (extra sky above, width grows with the window) from `lib/pixel/`, no image files for the scene unless sprites are added from Piskel or Aseprite.
+- The scene is drawn in code on a canvas 144 art pixels tall (extra sky above, width grows with the window) from `lib/pixel/`, no image files for the scene except rooftop icons in `public/sprites/` (any size; `toSprite` in `lib/pixel/sprites.ts` shrinks them to at most 26 × 13 street pixels and adds an outline).
 - Case-study images use `next/image` with real `alt`.
 - Lighthouse targets: Performance ≥ 90, Accessibility ≥ 95 on mobile.
 

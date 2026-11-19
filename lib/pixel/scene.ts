@@ -3,10 +3,8 @@ import { site } from "@/content/site";
 import {
   COLORS,
   HEIGHT,
-  ICONS,
-  SPRITE_COLORS,
-  WALK_A,
-  WALK_B,
+  SKY_COLORS,
+  CHARACTER,
   WIDTH,
   charWidth,
   glyph,
@@ -19,7 +17,6 @@ const SIDEWALK_Y = 104;
 const ROAD_Y = 118;
 const FEET_Y = 114;
 const SPRITE_W = 8;
-const SPRITE_H = 12;
 
 const WALK_SPEED = 1.25; // pixels per tick
 export const WALK_FRAME_TICKS = 8; // technique 4: slower beat than the 60 fps camera
@@ -139,7 +136,8 @@ export function fitView(
 export type WalkState = {
   x: number;
   facing: 1 | -1;
-  walkFrame: 0 | 1;
+  moving: boolean;
+  animTicks: number; // ticks since the character started walking or stopped
   ticks: number;
   shutters: number[]; // 0 is closed, 1 is rolled all the way up
 };
@@ -160,7 +158,8 @@ export function createWalkState(world: World): WalkState {
   return {
     x: 44,
     facing: 1,
-    walkFrame: 1,
+    moving: false,
+    animTicks: 0,
     ticks: 0,
     shutters: world.stores.map(() => 0),
   };
@@ -187,14 +186,15 @@ export function update(
 ): Store | null {
   state.ticks += 1;
 
-  if (direction !== 0) {
+  const moving = direction !== 0;
+  if (moving !== state.moving) {
+    state.moving = moving;
+    state.animTicks = 0; // start the new animation from its first frame
+  }
+  state.animTicks += 1;
+  if (moving) {
     state.facing = direction > 0 ? 1 : -1;
     state.x += direction * WALK_SPEED;
-    if (state.ticks % WALK_FRAME_TICKS === 0) {
-      state.walkFrame = state.walkFrame === 0 ? 1 : 0;
-    }
-  } else {
-    state.walkFrame = 1;
   }
   state.x = clamp(state.x, 2, world.width - SPRITE_W - 2);
 
@@ -247,14 +247,48 @@ function drawText(
   });
 }
 
-function drawSprite(ctx: Ctx, rows: string[], x: number, y: number, flip: boolean) {
-  rows.forEach((row, rowIndex) => {
-    row.split("").forEach((letter, col) => {
-      if (letter === ".") return;
-      const drawCol = flip ? SPRITE_W - 1 - col : col;
-      rect(ctx, SPRITE_COLORS[letter], x + drawCol, y + rowIndex, 1, 1);
-    });
-  });
+// Which cell of the sprite sheet to show: [row, column].
+function characterCell(state: WalkState, reducedMotion: boolean): [number, number] {
+  if (state.moving) {
+    const { row, frames, ticksPerFrame } = CHARACTER.walk;
+    return [row, Math.floor(state.animTicks / ticksPerFrame) % frames];
+  }
+  const { row, timeline } = CHARACTER.idle;
+  if (reducedMotion) return [row, timeline[0][0]]; // hold still: no breathing or blinking
+  const total = timeline.reduce((sum, [, ticks]) => sum + ticks, 0);
+  let t = state.animTicks % total;
+  for (const [column, ticks] of timeline) {
+    if (t < ticks) return [row, column];
+    t -= ticks;
+  }
+  return [row, timeline[0][0]];
+}
+
+// The character from its sprite sheet, bottom of the cell on the sidewalk,
+// centered on the player, mirrored when walking left. Nothing is drawn until
+// the sheet has loaded (it's a 2 KB image).
+function drawPlayer(
+  ctx: Ctx,
+  state: WalkState,
+  playerX: number,
+  sprites: Sprites,
+  reducedMotion: boolean,
+) {
+  const sheet = sprites.get(CHARACTER.sheet);
+  if (!sheet) return;
+  const { frameWidth: w, frameHeight: h } = CHARACTER;
+  const [row, column] = characterCell(state, reducedMotion);
+  const left = playerX + Math.floor((SPRITE_W - w) / 2);
+  const top = FEET_Y - h;
+  ctx.save();
+  if (state.facing < 0) {
+    ctx.translate(left + w, top);
+    ctx.scale(-1, 1);
+  } else {
+    ctx.translate(left, top);
+  }
+  ctx.drawImage(sheet, column * w, row * h, w, h, 0, 0, w, h);
+  ctx.restore();
 }
 
 // Technique 6: texture from two existing colors instead of a new shade.
@@ -270,8 +304,57 @@ function dither(ctx: Ctx, color: string, x: number, y: number, w: number, h: num
 const TWINKLE_CYCLE = 120;
 const TWINKLE_OFF = 8;
 
-function drawSky(ctx: Ctx, ticks: number, reducedMotion: boolean, view: View) {
-  rect(ctx, COLORS.night, 0, -view.sceneTop, view.width, view.height);
+export type SkyPhase = keyof typeof SKY_COLORS;
+
+/**
+ * Which sky to draw for a local time of day (hours, 0 to 24). Fixed hours, as an
+ * approximation: real sunrise and sunset move with the seasons and location.
+ */
+export function skyPhaseAt(hours: number): SkyPhase {
+  if (hours >= 7 && hours < 18) return "day";
+  if ((hours >= 5.5 && hours < 7) || (hours >= 18 && hours < 19.5)) return "twilight";
+  return "night";
+}
+
+function drawSun(ctx: Ctx, x: number, y: number) {
+  const radius = 6;
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    const half = Math.round(Math.sqrt(radius * radius - dy * dy));
+    rect(ctx, COLORS.amber, x - half, y + dy, half * 2, 1);
+  }
+  // Pixel rays, straight and diagonal.
+  for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    rect(ctx, COLORS.amber, x + dx * 9 - (dx === 0 ? 1 : 0), y + dy * 9 - (dy === 0 ? 1 : 0), dx === 0 ? 2 : 2, dy === 0 ? 2 : 2);
+  }
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    rect(ctx, COLORS.amber, x + dx * 7 - (dx < 0 ? 1 : 0), y + dy * 7 - (dy < 0 ? 1 : 0), 1, 1);
+  }
+}
+
+function drawSky(
+  ctx: Ctx,
+  ticks: number,
+  reducedMotion: boolean,
+  view: View,
+  phase: SkyPhase,
+) {
+  rect(ctx, SKY_COLORS[phase], 0, -view.sceneTop, view.width, view.height);
+
+  // Sun by day, moon otherwise, near the right edge a little below the top of the view.
+  const bodyX = view.width - 34;
+  const bodyY = -view.sceneTop + 12;
+  if (phase === "day") {
+    drawSun(ctx, bodyX, bodyY);
+    return; // no stars in daylight
+  }
+
+  const radius = 8;
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    const half = Math.round(Math.sqrt(radius * radius - dy * dy));
+    rect(ctx, COLORS.amber, bodyX - half, bodyY + dy, half * 2, 1);
+  }
+  if (phase !== "night") return; // stars only once it is fully dark
+
   for (let offset = 0; offset < view.width; offset += STAR_FIELD_W) {
     STARS.forEach(([x, y], index) => {
       if (y < -view.sceneTop || offset + x >= view.width) return;
@@ -281,24 +364,16 @@ function drawSky(ctx: Ctx, ticks: number, reducedMotion: boolean, view: View) {
     });
   }
 
-  // The moon stays near the right edge, a little below the top of the view,
-  // however wide or zoomed in the window is.
-  const radius = 8;
-  const moonX = view.width - 34;
-  const moonY = -view.sceneTop + 12;
-  for (let dy = -radius; dy <= radius; dy += 1) {
-    const half = Math.round(Math.sqrt(radius * radius - dy * dy));
-    rect(ctx, COLORS.amber, moonX - half, moonY + dy, half * 2, 1);
-  }
 }
 
-function drawSkyline(ctx: Ctx, scroll: number, width: number) {
+function drawSkyline(ctx: Ctx, scroll: number, width: number, phase: SkyPhase) {
   let x = -mod(scroll, SKYLINE_W);
   while (x < width) {
     SKYLINE.forEach(([w, h], building) => {
       const top = SIDEWALK_Y - h;
       rect(ctx, COLORS.street, x, top, w, h);
-      for (let wy = top + 4; wy < SIDEWALK_Y - 4; wy += 5) {
+      // Windows light up once the sun goes down.
+      for (let wy = top + 4; phase !== "day" && wy < SIDEWALK_Y - 4; wy += 5) {
         for (let wx = 3; wx < w - 2; wx += 4) {
           if ((building * 7 + wx * 3 + wy * 5) % 4 === 0) {
             rect(ctx, COLORS.amber, x + wx, wy, 1, 1);
@@ -393,20 +468,32 @@ function drawUpperFloor(ctx: Ctx, store: Store, sx: number, top: number, signY: 
   }
 }
 
+/** Street-sized sprites (see lib/pixel/sprites.ts), keyed by a project's `icon` path. */
+export type Sprites = ReadonlyMap<string, HTMLCanvasElement>;
+
 // A store's rooftop icon, centered, sitting on the roof edge at row `roof`.
-function drawRoofIcon(ctx: Ctx, store: Store, sx: number, roof: number) {
-  if (!store.project.icon) return;
-  const { rows, colors } = ICONS[store.project.icon];
-  const left = sx + Math.floor((store.width - rows[0].length) / 2);
-  const top = roof + 1 - (rows.length - 1);
-  rows.forEach((row, y) => {
-    row.split("").forEach((cell, x) => {
-      if (cell !== ".") rect(ctx, colors[cell], left + x, top + y, 1, 1);
-    });
-  });
+// Already fitted to the street by toSprite, so it is drawn 1:1 and stays crisp.
+function drawRoofIcon(
+  ctx: Ctx,
+  store: Store,
+  sx: number,
+  roof: number,
+  sprites: Sprites,
+) {
+  const image = store.project.icon && sprites.get(store.project.icon);
+  if (!image) return; // not loaded yet, or no icon
+  const left = sx + Math.floor((store.width - image.width) / 2);
+  const top = roof + 1 - (image.height - 1);
+  ctx.drawImage(image, Math.round(left), Math.round(top));
 }
 
-function drawOpenStore(ctx: Ctx, store: Store, sx: number, shutter: number) {
+function drawOpenStore(
+  ctx: Ctx,
+  store: Store,
+  sx: number,
+  shutter: number,
+  sprites: Sprites,
+) {
   const { width, project } = store;
   const { building, palette } = project;
 
@@ -418,7 +505,7 @@ function drawOpenStore(ctx: Ctx, store: Store, sx: number, shutter: number) {
 
   rect(ctx, palette.brick, sx, top, width, height);
   rect(ctx, COLORS.edge, sx, top, width, 2);
-  drawRoofIcon(ctx, store, sx, top);
+  drawRoofIcon(ctx, store, sx, top, sprites);
   drawUpperFloor(ctx, store, sx, top, signY);
   drawSignBoard(ctx, store, sx, signY);
 
@@ -485,8 +572,7 @@ function drawConstructionLot(ctx: Ctx, store: Store, sx: number) {
   drawText(ctx, sign, boardX + 4, fenceY + 6, palette.neon);
 }
 
-function lampPositions(cam: number, reducedMotion: boolean, width: number) {
-  const scroll = Math.round(cam * (reducedMotion ? 1 : LAMP_SPEED));
+function lampPositions(scroll: number, width: number) {
   const positions: number[] = [];
   let i = Math.floor((scroll - 24) / LAMP_SPACING);
   for (let x = i * LAMP_SPACING + 76 - scroll; x < width + 24;) {
@@ -515,14 +601,34 @@ function drawLampPost(ctx: Ctx, x: number) {
   rect(ctx, COLORS.amber, x - 2, LAMP_TOP - 2, 6, 2);
 }
 
-/** Left edge of the view in world pixels. Shared with the HTML overlays. */
+/**
+ * Left edge of the view in world pixels. Shared with the HTML overlays.
+ * Snapped to whole device pixels (not art pixels), so the street scrolls
+ * smoothly even when one art pixel is several screen pixels wide. The offset
+ * from the player is a whole number, so the character never twitches on screen.
+ */
 export function cameraX(world: World, state: WalkState, view: View) {
   // On a window wider than the whole street, the camera simply stays at 0.
-  return clamp(
-    Math.round(state.x + SPRITE_W / 2 - view.width / 2),
+  const target = clamp(
+    state.x + SPRITE_W / 2 - Math.floor(view.width / 2),
     0,
     Math.max(0, world.width - view.width),
   );
+  return Math.round(target * view.scale) / view.scale;
+}
+
+/**
+ * Draws one scrolling layer. The art inside stays on its own whole-pixel grid
+ * (draw receives a whole-number scroll); the layer itself is shifted by the
+ * leftover fraction, in whole device pixels, so pixels stay crisp.
+ */
+function scrolled(ctx: Ctx, view: View, offset: number, draw: (scroll: number) => void) {
+  const devicePx = Math.round(offset * view.scale);
+  const scroll = Math.floor(devicePx / view.scale);
+  ctx.save();
+  ctx.translate(-(devicePx - scroll * view.scale) / view.scale, 0);
+  draw(scroll);
+  ctx.restore();
 }
 
 export function draw(
@@ -531,41 +637,48 @@ export function draw(
   state: WalkState,
   reducedMotion: boolean,
   view: View,
+  sprites: Sprites,
+  phase: SkyPhase,
 ) {
   const cam = cameraX(world, state, view);
+  const { scale } = view;
+  // Scrolling layers can shift up to one pixel left, so they draw one extra column.
+  const wide: View = { ...view, width: view.width + 1 };
 
-  // Everything below is drawn in scene rows; the extra sky sits above row 0.
-  ctx.save();
-  ctx.translate(0, view.sceneTop);
+  // The canvas is in device pixels; everything is drawn in art pixels, scaled
+  // up. Scene rows start at sceneTop; the extra sky sits above row 0.
+  ctx.setTransform(scale, 0, 0, scale, 0, view.sceneTop * scale);
+  ctx.imageSmoothingEnabled = false;
 
-  drawSky(ctx, state.ticks, reducedMotion, view);
-  drawSkyline(
-    ctx,
-    Math.round(cam * (reducedMotion ? 1 : SKYLINE_SPEED)),
-    view.width,
+  drawSky(ctx, state.ticks, reducedMotion, view, phase);
+  scrolled(ctx, view, cam * (reducedMotion ? 1 : SKYLINE_SPEED), (scroll) =>
+    drawSkyline(ctx, scroll, wide.width, phase),
   );
-  drawTitle(ctx, cam, view.width);
-  drawGround(ctx, cam, view);
 
-  world.stores.forEach((store, index) => {
-    const sx = store.x - cam;
-    if (sx > view.width || sx + store.width < 0) return;
-    if (isOpen(store)) drawOpenStore(ctx, store, sx, state.shutters[index]);
-    else drawConstructionLot(ctx, store, sx);
+  scrolled(ctx, view, cam, (scroll) => {
+    drawTitle(ctx, scroll, view.width);
+    drawGround(ctx, scroll, wide);
+    world.stores.forEach((store, index) => {
+      const sx = store.x - scroll;
+      if (sx > wide.width || sx + store.width < 0) return;
+      if (isOpen(store)) drawOpenStore(ctx, store, sx, state.shutters[index], sprites);
+      else drawConstructionLot(ctx, store, sx);
+    });
   });
 
-  const lamps = lampPositions(cam, reducedMotion, view.width);
-  lamps.forEach((x) => drawLampLight(ctx, x));
-
-  const playerX = Math.round(state.x) - cam;
-  drawSprite(
-    ctx,
-    state.walkFrame === 0 ? WALK_A : WALK_B,
-    playerX,
-    FEET_Y - SPRITE_H,
-    state.facing < 0,
+  const lampScroll = cam * (reducedMotion ? 1 : LAMP_SPEED);
+  scrolled(ctx, view, lampScroll, (scroll) =>
+    lampPositions(scroll, wide.width).forEach((x) => drawLampLight(ctx, x)),
   );
 
-  lamps.forEach((x) => drawLampPost(ctx, x));
-  ctx.restore();
+  // The player, placed to the device pixel like the camera.
+  scrolled(ctx, view, cam, (scroll) => {
+    const playerX = Math.round(state.x * scale) / scale - scroll;
+    drawPlayer(ctx, state, playerX, sprites, reducedMotion);
+  });
+
+  scrolled(ctx, view, lampScroll, (scroll) =>
+    lampPositions(scroll, wide.width).forEach((x) => drawLampPost(ctx, x)),
+  );
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

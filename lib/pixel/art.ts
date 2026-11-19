@@ -1,5 +1,3 @@
-import type { Project } from "@/content/projects";
-
 // Everything the street is drawn from: screen size, colors, sprites, and letters.
 
 // Technique 1: the whole world is drawn on this tiny grid, then enlarged.
@@ -8,6 +6,14 @@ export const HEIGHT = 144;
 
 // Technique 5: every color in the scene comes from this list, plus each
 // project's own palette in content/projects.ts. No transparency, no new shades.
+// Sky colors for each time of day, chosen so the off-white title and key-guide
+// labels keep at least 4.5:1 contrast on every one of them.
+export const SKY_COLORS = {
+  night: "#0B1020",
+  twilight: "#2B2350",
+  day: "#2E5A8C",
+} as const;
+
 export const COLORS = {
   night: "#0B1020",
   street: "#191F31",
@@ -32,6 +38,39 @@ export const SPRITE_COLORS: Record<string, string> = {
   P: COLORS.sign, // pants
   B: COLORS.night, // shoes
 };
+
+// The character: one sprite sheet image, a grid of equal-size cells. Redraw or
+// replace public/sprites/walker-sheet-1x.png (same grid) and the street updates; no
+// code change needed. Drawn 1:1 (one image pixel = one street pixel), the bottom
+// of each cell on the sidewalk, centered on the player, mirrored when walking left.
+// Timings are game ticks (60 per second).
+export const CHARACTER = {
+  sheet: "/sprites/walker-sheet-1x.png",
+  // Footsteps: loops while the character walks; stops and rewinds when it stops.
+  footsteps: "/Sound/Concrete_Shoes_Walking.wav",
+  frameWidth: 16,
+  frameHeight: 26,
+  // Row 1: frame 1 normal, frame 2 breathing (1px lower), frame 3 blink.
+  // Each step is [column, ticks]: breathe twice, then a quick blink.
+  idle: {
+    row: 0,
+    timeline: [
+      [0, 30],
+      [1, 30],
+      [0, 30],
+      [1, 30],
+      [0, 24],
+      [2, 8],
+    ],
+  },
+  // Row 2: stride, pass, stride, pass.
+  walk: { row: 1, frames: 4, ticksPerFrame: 8 },
+  // Row 3: longer stride. In the sheet, not used yet (the street has one speed).
+  run: { row: 2, frames: 4, ticksPerFrame: 6 },
+} as const;
+
+// Legacy 8 x 12 frames drawn in code. The street no longer uses them; only the
+// unused components/street/PixelLessons.tsx still imports them.
 
 export const WALK_A = [
   "..HHHH..",
@@ -151,56 +190,3 @@ export const ARROW_UP = [
   "...###...",
   "...###...",
 ];
-
-// Rooftop icons, one per store (picked by `icon` in content/projects.ts).
-// Each is a grid of letters like the walker; "." is see-through. Traced from
-// the owner's pixel art and fitted to the street's scale.
-type Icon = { rows: string[]; colors: Record<string, string> };
-
-export const ICONS: Record<NonNullable<Project["icon"]>, Icon> = {
-  "chef-hat": {
-    colors: { o: COLORS.edge, w: COLORS.paper, f: COLORS.sub, p: COLORS.pink },
-    rows: [
-      "......oooo......",
-      ".....owwwwo.....",
-      "..oooowwwwoooo..",
-      ".owwwowwwwowwwo.",
-      "owwwwwwwwwwwwwwo",
-      "owwwwwwwwwwwwwwo",
-      "owwwwfwwwwfwwwwo",
-      ".owwwfwwwwfwwwo.",
-      "..oowfwwwwfwoo..",
-      "...owfwwwwfwo...",
-      "...owwwwwwwwo...",
-      "...oppppppppo...",
-      "...oppppppppo...",
-      "...oooooooooo...",
-    ],
-  },
-  "banh-mi": {
-    colors: {
-      o: COLORS.edge, // outline: the roof-trim color, so it shows against the night sky
-      b: "#F6A31D", // bread
-      c: "#BE5002", // crust score
-      h: "#FCCE7B", // crust highlight
-      g: "#549D23", // cilantro
-      k: "#0B3A27", // dark herbs
-      r: "#FD6B00", // pickled carrot
-      w: "#F3DAC5", // daikon
-      m: "#76251F", // pork
-      l: "#CF7E64", // pork, light
-    },
-    rows: [
-      "......oooooo....oooooo....",
-      "....oobbbbbboooobbbbbboo..",
-      "..oobbbcchhbbbbbbcchhbbbo.",
-      ".obbbbcchhbbbbbbcchhbbbbbo",
-      "obbbbbbbbbbbbbbbbbbbbbbbbo",
-      "okgkrrwgkkgwrrkgkkwrrgkkro",
-      "owrrkgwwlmrrwkmlrrgwwmlwko",
-      "oblmmllmmllmmlmmllmmllmmbo",
-      ".obbbbbbbbbbbbbbbbbbbbbbo.",
-      "..oooooooooooooooooooooo..",
-    ],
-  },
-};
